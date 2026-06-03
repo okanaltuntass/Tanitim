@@ -1,1 +1,4 @@
 # Tanitim
+
+
+npm run dev
