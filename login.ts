@@ -266,6 +266,11 @@ async function closeDyopPopupIfVisible(page: Page): Promise<void> {
   console.log('Kapatılacak popup bulunamadı.');
 }
 
+async function hasMissingSessionError(page: Page): Promise<boolean> {
+  return await page.getByText('[FE00015]Oturum Bulunamadı!').first().isVisible().catch(() => false)
+    || await page.getByText('Oturum Bulunamadı').first().isVisible().catch(() => false);
+}
+
 async function run(): Promise<void> {
   console.log('Browser başlatılıyor (kalıcı profil kullanılıyor)...');
   console.log(`Profil dizini: ${PROFILE_DIR}`);
@@ -284,8 +289,17 @@ async function run(): Promise<void> {
   const currentUrl = page.url();
   console.log(`Mevcut URL: ${currentUrl}`);
 
+  const sessionMissing = await hasMissingSessionError(page);
+  if (sessionMissing) {
+    console.log('[FE00015] Oturum Bulunamadı tespit edildi, yeniden giriş yapılacak...');
+    await page.goto(DYOP_LOGIN_URL);
+    await page.waitForLoadState('networkidle').catch(() => {});
+  }
+
+  const urlAfterSessionCheck = page.url();
+
   // Eğer zaten DYOP ana sayfasındaysak (session aktif), direkt devam
-  if (currentUrl.includes('dyop.ticaret.gov.tr') && !currentUrl.includes('loginServlet') && !currentUrl.includes('ortakgiris')) {
+  if (!sessionMissing && urlAfterSessionCheck.includes('dyop.ticaret.gov.tr') && !urlAfterSessionCheck.includes('loginServlet') && !urlAfterSessionCheck.includes('ortakgiris')) {
     console.log('Oturum zaten aktif, DYOP sayfasına doğrudan erişildi.');
   } else {
     // ──────────────────────────────────────────────
