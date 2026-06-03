@@ -244,7 +244,7 @@ async function handleAcceptButton(page: Page): Promise<void> {
 
 async function closeDyopPopupIfVisible(page: Page): Promise<void> {
   console.log('DYOP popup kapatma/Tamam butonu kontrol ediliyor...');
-  const popupSelector = '.cs-popup-window, .cs-popup-msg-box';
+  const popupSelector = '.cs-popup-window:not(.fatura-ekle-popup), .cs-popup-msg-box:not(.fatura-ekle-popup)';
   const closeBtnSelectors = [
     '#runtime-body > div:nth-child(7) > div.cs-popup-title > div.cs-popup-close-btn',
     '.cs-popup-title .cs-popup-close-btn',
@@ -266,6 +266,11 @@ async function closeDyopPopupIfVisible(page: Page): Promise<void> {
     for (const selector of closeBtnSelectors) {
       const closeBtn = page.locator(selector).first();
       if (!await closeBtn.isVisible().catch(() => false)) {
+        continue;
+      }
+
+      const isInvoiceModalButton = await closeBtn.evaluate((el) => !!el.closest('.fatura-ekle-popup')).catch(() => false);
+      if (isInvoiceModalButton) {
         continue;
       }
 
@@ -348,6 +353,60 @@ async function openInvoicesPage(page: Page): Promise<void> {
   await page.locator('#_menu_org_fr_fatura_list > a').first().click();
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(1000);
+}
+
+async function clickNewInvoice(page: Page): Promise<void> {
+  console.log('Yeni Fatura butonu kontrol ediliyor...');
+  const newInvoiceSelector = [
+    '#gen__2107',
+    'input[type="button"][rel="buttonFaturaEkle"]',
+    'input[type="button"][value="Yeni Fatura"]',
+    'button:has-text("Yeni Fatura")',
+  ].join(', ');
+
+  const newInvoiceBtn = page.locator(newInvoiceSelector).first();
+  await newInvoiceBtn.waitFor({ state: 'visible', timeout: 15000 });
+
+  console.log('Yeni Fatura butonuna tıklanıyor...');
+  await newInvoiceBtn.click({ force: true });
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1000);
+}
+
+async function confirmNewInvoiceWarning(page: Page): Promise<void> {
+  console.log('Yeni Fatura uyarı popup kontrol ediliyor...');
+  const warningText = 'Yüklenen evrakın başvuru ile ilişkilendirildiğinden emin olunmalıdır.';
+  const okSelector = '#runtime-body > div.cs-popup-window.project-css.main-css.empty.cs-popup-msg-box > div.cs-popup-content > div > div > div > input';
+
+  await Promise.race([
+    page.getByText(warningText).first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
+    page.locator(okSelector).first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
+  ]);
+
+  const okButton = page.locator(okSelector).first();
+  if (await okButton.isVisible().catch(() => false)) {
+    console.log('Yeni Fatura uyarısında Tamam butonuna tıklanıyor...');
+    await okButton.click({ force: true });
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(700);
+    return;
+  }
+
+  await closeDyopPopupIfVisible(page);
+}
+
+async function fillInvoiceTypeFields(page: Page): Promise<void> {
+  console.log('Fatura tipi ve türü seçiliyor...');
+  const invoiceFileType = page.locator('#gen__2148');
+  const invoiceType = page.locator('#gen__2149');
+
+  await invoiceFileType.waitFor({ state: 'visible', timeout: 15000 });
+  await invoiceType.waitFor({ state: 'visible', timeout: 15000 });
+
+  await invoiceFileType.selectOption('PDF');
+  await invoiceType.selectOption('YURTDISIALIS');
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(500);
 }
 
 async function run(): Promise<void> {
@@ -450,6 +509,10 @@ async function run(): Promise<void> {
   await closeDyopPopupIfVisible(page);
   await openInvoicesPage(page);
   await closeDyopPopupIfVisible(page);
+  await clickNewInvoice(page);
+  await confirmNewInvoiceWarning(page);
+  await closeDyopPopupIfVisible(page);
+  await fillInvoiceTypeFields(page);
 
   await page.waitForTimeout(3000);
 
