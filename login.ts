@@ -8,6 +8,7 @@ const EDEVLET_PASS = 'oKss83**16';
 const PROFILE_DIR = path.join(process.cwd(), '.browser-profile');
 const DYOP_HOME_URL = 'https://dyop.ticaret.gov.tr/dyop-main-side/';
 const DYOP_LOGIN_URL = 'https://dyop.ticaret.gov.tr/dyop-web/loginServlet';
+const COMPANY_NAME = 'IWA CONCEPT HEDİYELİK EŞYA MOBİLYA İTHALAT İHRACAT SANAYİ VE TİCARET LİMİTED ŞİRKETİ (ASIL)';
 
 function askQuestion(query: string): Promise<string> {
   const rl = readline.createInterface({
@@ -242,33 +243,111 @@ async function handleAcceptButton(page: Page): Promise<void> {
 }
 
 async function closeDyopPopupIfVisible(page: Page): Promise<void> {
-  console.log('DYOP popup kapatma butonu kontrol ediliyor...');
-  const closeBtnSelector = [
+  console.log('DYOP popup kapatma/Tamam butonu kontrol ediliyor...');
+  const popupSelector = '.cs-popup-window, .cs-popup-msg-box';
+  const closeBtnSelectors = [
+    '#runtime-body > div:nth-child(7) > div.cs-popup-title > div.cs-popup-close-btn',
+    '.cs-popup-title .cs-popup-close-btn',
+    '#runtime-body > div.cs-popup-window.project-css.main-css.empty.cs-popup-msg-box > div.cs-popup-content > div > div > div > input',
     '#gen__1115',
     'input[type="button"][title="Kapat"]',
     'input[type="button"][value="Kapat"]',
+    'input[type="button"][title="Tamam"]',
+    'input[type="button"][value="Tamam"]',
     'button:has-text("Kapat")',
+    'button:has-text("Tamam")',
     '[rel="button"][title="Kapat"]',
-  ].join(', ');
+    '[rel="button"][title="Tamam"]',
+  ];
 
   for (let i = 0; i < 6; i++) {
-    const closeBtn = page.locator(closeBtnSelector).first();
-    if (await closeBtn.isVisible().catch(() => false)) {
-      console.log('Popup kapatılıyor...');
-      await closeBtn.click();
+    let clicked = false;
+
+    for (const selector of closeBtnSelectors) {
+      const closeBtn = page.locator(selector).first();
+      if (!await closeBtn.isVisible().catch(() => false)) {
+        continue;
+      }
+
+      console.log(`Popup kapatılıyor: ${selector}`);
+      await closeBtn.click({ force: true }).catch(() => {});
       await page.waitForLoadState('networkidle').catch(() => {});
-      await page.waitForTimeout(500);
-      return;
+      await page.waitForTimeout(700);
+      clicked = true;
+
+      const popupStillVisible = await page.locator(popupSelector).first().isVisible().catch(() => false);
+      if (!popupStillVisible) {
+        return;
+      }
     }
+
+    if (!clicked) {
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
     await page.waitForTimeout(1000);
   }
 
-  console.log('Kapatılacak popup bulunamadı.');
+  console.log('Kapatılacak popup/Tamam mesajı bulunamadı.');
 }
 
 async function hasMissingSessionError(page: Page): Promise<boolean> {
   return await page.getByText('[FE00015]Oturum Bulunamadı!').first().isVisible().catch(() => false)
     || await page.getByText('Oturum Bulunamadı').first().isVisible().catch(() => false);
+}
+
+async function selectCompany(page: Page): Promise<void> {
+  console.log('Firma seçimi kontrol ediliyor...');
+  const companySelect = page.locator('#gen__1009');
+
+  await companySelect.waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
+
+  if (await companySelect.count() === 0) {
+    console.log('Firma select alanı bulunamadı: #gen__1009');
+    return;
+  }
+
+  for (let i = 0; i < 10; i++) {
+    const options = await companySelect.locator('option').allTextContents();
+    const hasCompany = options.some((option) => option.trim() === COMPANY_NAME);
+
+    if (hasCompany) {
+      console.log('Firma seçiliyor...');
+      await companySelect.selectOption({ label: COMPANY_NAME });
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForTimeout(1000);
+      return;
+    }
+
+    await page.waitForTimeout(1000);
+  }
+
+  const options = await companySelect.locator('option').allTextContents();
+  console.log('Firma seçeneği bulunamadı. Mevcut seçenekler:');
+  for (const option of options) {
+    console.log(`- ${option.trim()}`);
+  }
+}
+
+async function openInvoicesPage(page: Page): Promise<void> {
+  console.log('Faturalar menüsü açılıyor...');
+  const menuSelectors = [
+    '#_menu_org_kurulus_islem > a',
+    '#_menu_org_kurulus_islem_yararlanici_evraki > a',
+    '#_menu_org_fr_fatura_list > a',
+  ];
+
+  for (const selector of menuSelectors) {
+    const menu = page.locator(selector).first();
+    await menu.waitFor({ state: 'visible', timeout: 15000 });
+    await menu.hover();
+    await page.waitForTimeout(700);
+  }
+
+  await page.locator('#_menu_org_fr_fatura_list > a').first().click();
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1000);
 }
 
 async function run(): Promise<void> {
@@ -366,6 +445,10 @@ async function run(): Promise<void> {
   // 7. "Kabul Ediyorum - Devam Et" butonu
   // ──────────────────────────────────────────────
   await handleAcceptButton(page);
+  await closeDyopPopupIfVisible(page);
+  await selectCompany(page);
+  await closeDyopPopupIfVisible(page);
+  await openInvoicesPage(page);
   await closeDyopPopupIfVisible(page);
 
   await page.waitForTimeout(3000);
